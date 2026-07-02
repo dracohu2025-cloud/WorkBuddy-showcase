@@ -20,14 +20,16 @@ const CONFIG = {
   trailMax: 48,
   atlasChars: 256,
   atlasSize: 16,
-  bloomStrength: 1.25,
-  bloomRadius: 0.55,
+  bloomStrength: 1.15,
+  bloomRadius: 0.5,
   bloomThreshold: 0.04,
   fogColor: 0x000300,
   baseColor: new THREE.Color('#00aa2a'),
   headColor: new THREE.Color('#ccffcc'),
   fogDensity: 0.015
 };
+
+const FONT_FACE = '"M PLUS 1 Code", monospace';
 
 // ------------------------------------------------------------------
 // MATRIX CHARACTERS
@@ -71,7 +73,9 @@ typeBootLine();
 // ------------------------------------------------------------------
 // CHARACTER TEXTURE ATLAS
 // ------------------------------------------------------------------
-function createCharAtlas() {
+async function createCharAtlas() {
+  await document.fonts.load(`bold 45px ${FONT_FACE}`);
+
   const charsPerRow = CONFIG.atlasSize;
   const cellSize = 64;
   const canvas = document.createElement('canvas');
@@ -83,7 +87,7 @@ function createCharAtlas() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${cellSize * 0.7}px "Share Tech Mono", monospace`;
+  ctx.font = `bold ${cellSize * 0.7}px ${FONT_FACE}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -101,38 +105,6 @@ function createCharAtlas() {
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
-
-// ------------------------------------------------------------------
-// SCENE SETUP
-// ------------------------------------------------------------------
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(CONFIG.fogColor);
-scene.fog = new THREE.FogExp2(CONFIG.fogColor, CONFIG.fogDensity);
-
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
-camera.position.set(0, 6, 32);
-camera.lookAt(0, -12, -25);
-
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.toneMapping = THREE.ReinhardToneMapping;
-document.body.appendChild(renderer.domElement);
-
-// ------------------------------------------------------------------
-// POST PROCESSING
-// ------------------------------------------------------------------
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  CONFIG.bloomStrength,
-  CONFIG.bloomRadius,
-  CONFIG.bloomThreshold
-);
-composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
 
 // ------------------------------------------------------------------
 // RAIN SHADER
@@ -170,7 +142,10 @@ const rainVertexShader = /* glsl */`
     float z = aLayerZ;
 
     vTrailPos = row / max(aTrailLen, 1.0);
-    vCharIndex = mod(uTime * 8.0 + float(gl_InstanceID) * 97.0, 256.0);
+
+    // Head changes fast; trail stays stable and only updates occasionally
+    float charTime = vTrailPos < 0.12 ? uTime * 7.0 : floor(uTime * 0.6);
+    vCharIndex = mod(charTime + float(gl_InstanceID) * 97.0, 256.0);
 
     vec3 pos = position * uCharSize;
     pos.x += x;
@@ -211,190 +186,215 @@ const rainFragmentShader = /* glsl */`
 `;
 
 // ------------------------------------------------------------------
-// RAIN SYSTEM
+// MAIN INIT
 // ------------------------------------------------------------------
-class MatrixRain {
-  constructor(layerIndex) {
-    this.layerIndex = layerIndex;
-    this.columns = Math.floor(CONFIG.columns / (layerIndex * 0.6 + 1));
-    this.maxRows = CONFIG.rows;
-    this.instanceCount = this.columns * this.maxRows;
+async function init() {
+  const atlas = await createCharAtlas();
 
-    const geometry = new THREE.PlaneGeometry(1, 1);
+  // SCENE SETUP
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(CONFIG.fogColor);
+  scene.fog = new THREE.FogExp2(CONFIG.fogColor, CONFIG.fogDensity);
 
-    const aColumn = new Float32Array(this.instanceCount);
-    const aSpeed = new Float32Array(this.instanceCount);
-    const aTrailLen = new Float32Array(this.instanceCount);
-    const aOffset = new Float32Array(this.instanceCount);
-    const aLayerZ = new Float32Array(this.instanceCount);
-    const aBrightness = new Float32Array(this.instanceCount);
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
+  camera.position.set(0, 6, 32);
+  camera.lookAt(0, -12, -25);
 
-    const layerZ = -layerIndex * 24;
-    const brightness = 1.0 - layerIndex * 0.28;
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.toneMapping = THREE.ReinhardToneMapping;
+  document.body.appendChild(renderer.domElement);
 
-    for (let c = 0; c < this.columns; c++) {
-      const speed = CONFIG.fallSpeedMin + Math.random() * (CONFIG.fallSpeedMax - CONFIG.fallSpeedMin);
-      const trailLen = CONFIG.trailMin + Math.floor(Math.random() * (CONFIG.trailMax - CONFIG.trailMin));
-      const offset = Math.random() * CONFIG.depth;
-      const columnX = c + 0.25;
-      const columnZ = layerZ + (Math.random() - 0.5) * 4.0;
+  // POST PROCESSING
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
 
-      for (let r = 0; r < this.maxRows; r++) {
-        const i = c * this.maxRows + r;
-        aColumn[i] = columnX;
-        aSpeed[i] = speed;
-        aTrailLen[i] = trailLen;
-        aOffset[i] = offset;
-        aLayerZ[i] = columnZ;
-        aBrightness[i] = brightness;
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    CONFIG.bloomStrength,
+    CONFIG.bloomRadius,
+    CONFIG.bloomThreshold
+  );
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+
+  // RAIN SYSTEM
+  class MatrixRain {
+    constructor(layerIndex) {
+      this.layerIndex = layerIndex;
+      this.columns = Math.floor(CONFIG.columns / (layerIndex * 0.6 + 1));
+      this.maxRows = CONFIG.rows;
+      this.instanceCount = this.columns * this.maxRows;
+
+      const geometry = new THREE.PlaneGeometry(1, 1);
+
+      const aColumn = new Float32Array(this.instanceCount);
+      const aSpeed = new Float32Array(this.instanceCount);
+      const aTrailLen = new Float32Array(this.instanceCount);
+      const aOffset = new Float32Array(this.instanceCount);
+      const aLayerZ = new Float32Array(this.instanceCount);
+      const aBrightness = new Float32Array(this.instanceCount);
+
+      const layerZ = -layerIndex * 24;
+      const brightness = 1.0 - layerIndex * 0.28;
+
+      for (let c = 0; c < this.columns; c++) {
+        const speed = CONFIG.fallSpeedMin + Math.random() * (CONFIG.fallSpeedMax - CONFIG.fallSpeedMin);
+        const trailLen = CONFIG.trailMin + Math.floor(Math.random() * (CONFIG.trailMax - CONFIG.trailMin));
+        const offset = Math.random() * CONFIG.depth;
+        const columnX = c + 0.25;
+        const columnZ = layerZ + (Math.random() - 0.5) * 4.0;
+
+        for (let r = 0; r < this.maxRows; r++) {
+          const i = c * this.maxRows + r;
+          aColumn[i] = columnX;
+          aSpeed[i] = speed;
+          aTrailLen[i] = trailLen;
+          aOffset[i] = offset;
+          aLayerZ[i] = columnZ;
+          aBrightness[i] = brightness;
+        }
       }
+
+      geometry.setAttribute('aColumn', new THREE.InstancedBufferAttribute(aColumn, 1));
+      geometry.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(aSpeed, 1));
+      geometry.setAttribute('aTrailLen', new THREE.InstancedBufferAttribute(aTrailLen, 1));
+      geometry.setAttribute('aOffset', new THREE.InstancedBufferAttribute(aOffset, 1));
+      geometry.setAttribute('aLayerZ', new THREE.InstancedBufferAttribute(aLayerZ, 1));
+      geometry.setAttribute('aBrightness', new THREE.InstancedBufferAttribute(aBrightness, 1));
+
+      const material = new THREE.ShaderMaterial({
+        vertexShader: rainVertexShader,
+        fragmentShader: rainFragmentShader,
+        uniforms: {
+          uAtlas: { value: atlas },
+          uTime: { value: 0 },
+          uSpread: { value: CONFIG.spread },
+          uDepth: { value: CONFIG.depth },
+          uCharSize: { value: CONFIG.charSize },
+          uRows: { value: this.maxRows },
+          uColumns: { value: this.columns },
+          uAtlasSize: { value: CONFIG.atlasSize },
+          uBaseColor: { value: CONFIG.baseColor },
+          uHeadColor: { value: CONFIG.headColor }
+        },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide
+      });
+
+      this.mesh = new THREE.InstancedMesh(geometry, material, this.instanceCount);
+      this.mesh.frustumCulled = false;
+      scene.add(this.mesh);
     }
 
-    geometry.setAttribute('aColumn', new THREE.InstancedBufferAttribute(aColumn, 1));
-    geometry.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(aSpeed, 1));
-    geometry.setAttribute('aTrailLen', new THREE.InstancedBufferAttribute(aTrailLen, 1));
-    geometry.setAttribute('aOffset', new THREE.InstancedBufferAttribute(aOffset, 1));
-    geometry.setAttribute('aLayerZ', new THREE.InstancedBufferAttribute(aLayerZ, 1));
-    geometry.setAttribute('aBrightness', new THREE.InstancedBufferAttribute(aBrightness, 1));
-
-    const material = new THREE.ShaderMaterial({
-      vertexShader: rainVertexShader,
-      fragmentShader: rainFragmentShader,
-      uniforms: {
-        uAtlas: { value: createCharAtlas() },
-        uTime: { value: 0 },
-        uSpread: { value: CONFIG.spread },
-        uDepth: { value: CONFIG.depth },
-        uCharSize: { value: CONFIG.charSize },
-        uRows: { value: this.maxRows },
-        uColumns: { value: this.columns },
-        uAtlasSize: { value: CONFIG.atlasSize },
-        uBaseColor: { value: CONFIG.baseColor },
-        uHeadColor: { value: CONFIG.headColor }
-      },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide
-    });
-
-    this.mesh = new THREE.InstancedMesh(geometry, material, this.instanceCount);
-    this.mesh.frustumCulled = false;
-    scene.add(this.mesh);
+    update(time) {
+      this.mesh.material.uniforms.uTime.value = time;
+    }
   }
 
-  update(time) {
-    this.mesh.material.uniforms.uTime.value = time;
-  }
-}
-
-const rains = [];
-for (let l = 0; l < CONFIG.layers; l++) {
-  rains.push(new MatrixRain(l));
-}
-
-// ------------------------------------------------------------------
-// GRID
-// ------------------------------------------------------------------
-const gridHelper = new THREE.GridHelper(140, 70, '#004d0f', '#001a05');
-gridHelper.position.y = -CONFIG.depth / 2 - 2;
-scene.add(gridHelper);
-
-const gridTop = new THREE.GridHelper(140, 70, '#004d0f', '#001a05');
-gridTop.position.y = CONFIG.depth / 2 + 2;
-scene.add(gridTop);
-
-// ------------------------------------------------------------------
-// LIGHTS
-// ------------------------------------------------------------------
-const ambient = new THREE.AmbientLight(0x003300, 0.5);
-scene.add(ambient);
-
-const pointLight = new THREE.PointLight(0x00ff41, 1.2, 120);
-pointLight.position.set(0, 0, 10);
-scene.add(pointLight);
-
-// ------------------------------------------------------------------
-// INTERACTION
-// ------------------------------------------------------------------
-const mouse = new THREE.Vector2();
-let camYaw = 0;
-let camPitch = 0;
-let zoom = 32;
-
-window.addEventListener('mousemove', (e) => {
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-  camYaw = mouse.x * 0.4;
-  camPitch = mouse.y * 0.25;
-});
-
-window.addEventListener('wheel', (e) => {
-  zoom += e.deltaY * 0.025;
-  zoom = Math.max(12, Math.min(70, zoom));
-});
-
-window.addEventListener('dblclick', () => {
-  camYaw = 0;
-  camPitch = 0;
-  zoom = 32;
-});
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// ------------------------------------------------------------------
-// UI
-// ------------------------------------------------------------------
-const fpsEl = document.getElementById('fps');
-const nodesEl = document.getElementById('nodes');
-const depthEl = document.getElementById('depth');
-let frameCount = 0;
-let fpsTime = 0;
-
-const totalNodes = rains.reduce((sum, r) => sum + r.instanceCount, 0);
-nodesEl.textContent = totalNodes.toLocaleString();
-
-// ------------------------------------------------------------------
-// ANIMATION LOOP
-// ------------------------------------------------------------------
-const clock = new THREE.Clock();
-
-function animate() {
-  requestAnimationFrame(animate);
-
-  const dt = clock.getDelta();
-  const time = clock.getElapsedTime();
-
-  rains.forEach(rain => rain.update(time));
-
-  const targetX = Math.sin(camYaw) * zoom;
-  const targetZ = Math.cos(camYaw) * zoom;
-  const targetCam = new THREE.Vector3(targetX, 6 + camPitch * 10, targetZ);
-
-  camera.position.lerp(targetCam, 0.04);
-  camera.lookAt(0, -12 + camPitch * 6, -25);
-
-  pointLight.position.copy(camera.position);
-
-  gridHelper.rotation.y = time * 0.015;
-  gridTop.rotation.y = -time * 0.015;
-
-  frameCount++;
-  fpsTime += dt;
-  if (fpsTime >= 0.5) {
-    fpsEl.textContent = Math.round(frameCount / fpsTime) + ' FPS';
-    frameCount = 0;
-    fpsTime = 0;
+  const rains = [];
+  for (let l = 0; l < CONFIG.layers; l++) {
+    rains.push(new MatrixRain(l));
   }
 
-  depthEl.textContent = Math.round(zoom * 10).toString();
+  // GRID
+  const gridHelper = new THREE.GridHelper(140, 70, '#004d0f', '#001a05');
+  gridHelper.position.y = -CONFIG.depth / 2 - 2;
+  scene.add(gridHelper);
 
-  composer.render();
+  const gridTop = new THREE.GridHelper(140, 70, '#004d0f', '#001a05');
+  gridTop.position.y = CONFIG.depth / 2 + 2;
+  scene.add(gridTop);
+
+  // LIGHTS
+  const ambient = new THREE.AmbientLight(0x003300, 0.5);
+  scene.add(ambient);
+
+  const pointLight = new THREE.PointLight(0x00ff41, 1.2, 120);
+  pointLight.position.set(0, 0, 10);
+  scene.add(pointLight);
+
+  // INTERACTION
+  const mouse = new THREE.Vector2();
+  let camYaw = 0;
+  let camPitch = 0;
+  let zoom = 32;
+
+  window.addEventListener('mousemove', (e) => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    camYaw = mouse.x * 0.4;
+    camPitch = mouse.y * 0.25;
+  });
+
+  window.addEventListener('wheel', (e) => {
+    zoom += e.deltaY * 0.025;
+    zoom = Math.max(12, Math.min(70, zoom));
+  });
+
+  window.addEventListener('dblclick', () => {
+    camYaw = 0;
+    camPitch = 0;
+    zoom = 32;
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // UI
+  const fpsEl = document.getElementById('fps');
+  const nodesEl = document.getElementById('nodes');
+  const depthEl = document.getElementById('depth');
+  let frameCount = 0;
+  let fpsTime = 0;
+
+  const totalNodes = rains.reduce((sum, r) => sum + r.instanceCount, 0);
+  nodesEl.textContent = totalNodes.toLocaleString();
+
+  // ANIMATION LOOP
+  const clock = new THREE.Clock();
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    const dt = clock.getDelta();
+    const time = clock.getElapsedTime();
+
+    rains.forEach(rain => rain.update(time));
+
+    const targetX = Math.sin(camYaw) * zoom;
+    const targetZ = Math.cos(camYaw) * zoom;
+    const targetCam = new THREE.Vector3(targetX, 6 + camPitch * 10, targetZ);
+
+    camera.position.lerp(targetCam, 0.04);
+    camera.lookAt(0, -12 + camPitch * 6, -25);
+
+    pointLight.position.copy(camera.position);
+
+    gridHelper.rotation.y = time * 0.015;
+    gridTop.rotation.y = -time * 0.015;
+
+    frameCount++;
+    fpsTime += dt;
+    if (fpsTime >= 0.5) {
+      fpsEl.textContent = Math.round(frameCount / fpsTime) + ' FPS';
+      frameCount = 0;
+      fpsTime = 0;
+    }
+
+    depthEl.textContent = Math.round(zoom * 10).toString();
+
+    composer.render();
+  }
+
+  animate();
 }
 
-animate();
+init().catch(err => console.error('Matrix init failed:', err));
