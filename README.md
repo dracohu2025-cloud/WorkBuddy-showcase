@@ -15,7 +15,8 @@
 
 ## 在线预览
 
-直接用浏览器打开 `index.html` 即可运行（依赖 CDN，需联网）。
+- **EdgeOne Pages 部署地址**：https://workbuddy-showcase-matrix-g9kuijah.edgeone.cool
+- 也可直接用浏览器打开本地 `index.html`（依赖 CDN，需联网）。
 
 ## 交互
 
