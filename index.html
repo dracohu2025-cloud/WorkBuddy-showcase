@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matrix // System Override</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="ui">
+    <header>
+      <h1>MATRIX // SYSTEM OVERRIDE</h1>
+      <p class="subtitle">NEURAL SIMULATION RUNNING</p>
+    </header>
+    <footer>
+      <div class="status-line">
+        <span id="fps">-- FPS</span>
+        <span>_NODES: <span id="nodes">0</span></span>
+        <span>DEPTH: <span id="depth">0</span>m</span>
+      </div>
+      <p class="hint">拖动鼠标改变视角 · 滚轮缩放 · 双击重置</p>
+    </footer>
+  </div>
+
+  <div id="boot-overlay">
+    <div class="boot-text"></div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="matrix.js"></script>
+</body>
+</html>

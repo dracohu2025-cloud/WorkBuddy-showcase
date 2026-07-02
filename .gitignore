@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (if installed locally)
+node_modules/
+dist/
+build/
+
+# Temp
+*.tmp
+.cache/
