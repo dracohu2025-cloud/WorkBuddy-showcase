@@ -116,6 +116,7 @@ const rainVertexShader = /* glsl */`
   attribute float aOffset;
   attribute float aLayerZ;
   attribute float aBrightness;
+  attribute float aCharSeed;
 
   uniform float uTime;
   uniform float uSpread;
@@ -133,7 +134,6 @@ const rainVertexShader = /* glsl */`
     vUv = uv;
     vBrightness = aBrightness;
 
-    float col = floor(float(gl_InstanceID) / uRows);
     float row = mod(float(gl_InstanceID), uRows);
 
     float headY = -mod(uTime * aSpeed + aOffset, uDepth) + uDepth * 0.5;
@@ -143,9 +143,11 @@ const rainVertexShader = /* glsl */`
 
     vTrailPos = row / max(aTrailLen, 1.0);
 
-    // Head changes fast; trail stays stable and only updates occasionally
-    float charTime = vTrailPos < 0.12 ? uTime * 7.0 : floor(uTime * 0.6);
-    vCharIndex = mod(charTime + float(gl_InstanceID) * 97.0, 256.0);
+    // Head: changes ~3x/sec. Trail: changes ~once every 5s, staggered per column.
+    float headTime = floor(uTime * 3.0 + aCharSeed * 0.1);
+    float trailTime = floor(uTime * 0.2 + aCharSeed);
+    float charTime = vTrailPos < 0.12 ? headTime : trailTime;
+    vCharIndex = mod(charTime + aCharSeed + row * 37.0, 256.0);
 
     vec3 pos = position * uCharSize;
     pos.x += x;
@@ -235,6 +237,7 @@ async function init() {
       const aOffset = new Float32Array(this.instanceCount);
       const aLayerZ = new Float32Array(this.instanceCount);
       const aBrightness = new Float32Array(this.instanceCount);
+      const aCharSeed = new Float32Array(this.instanceCount);
 
       const layerZ = -layerIndex * 24;
       const brightness = 1.0 - layerIndex * 0.28;
@@ -244,7 +247,8 @@ async function init() {
         const trailLen = CONFIG.trailMin + Math.floor(Math.random() * (CONFIG.trailMax - CONFIG.trailMin));
         const offset = Math.random() * CONFIG.depth;
         const columnX = c + 0.25;
-        const columnZ = layerZ + (Math.random() - 0.5) * 4.0;
+        const columnZ = layerZ;  // fixed per layer, no per-instance Z jitter
+        const charSeed = Math.floor(Math.random() * 256);
 
         for (let r = 0; r < this.maxRows; r++) {
           const i = c * this.maxRows + r;
@@ -254,6 +258,7 @@ async function init() {
           aOffset[i] = offset;
           aLayerZ[i] = columnZ;
           aBrightness[i] = brightness;
+          aCharSeed[i] = charSeed;
         }
       }
 
@@ -263,6 +268,7 @@ async function init() {
       geometry.setAttribute('aOffset', new THREE.InstancedBufferAttribute(aOffset, 1));
       geometry.setAttribute('aLayerZ', new THREE.InstancedBufferAttribute(aLayerZ, 1));
       geometry.setAttribute('aBrightness', new THREE.InstancedBufferAttribute(aBrightness, 1));
+      geometry.setAttribute('aCharSeed', new THREE.InstancedBufferAttribute(aCharSeed, 1));
 
       const material = new THREE.ShaderMaterial({
         vertexShader: rainVertexShader,
@@ -300,7 +306,7 @@ async function init() {
     rains.push(new MatrixRain(l));
   }
 
-  // GRID
+  // GRID — static, no rotation
   const gridHelper = new THREE.GridHelper(140, 70, '#004d0f', '#001a05');
   gridHelper.position.y = -CONFIG.depth / 2 - 2;
   scene.add(gridHelper);
@@ -317,27 +323,15 @@ async function init() {
   pointLight.position.set(0, 0, 10);
   scene.add(pointLight);
 
-  // INTERACTION
-  const mouse = new THREE.Vector2();
-  let camYaw = 0;
-  let camPitch = 0;
+  // INTERACTION — zoom only, no mouse-driven camera rotation
   let zoom = 32;
-
-  window.addEventListener('mousemove', (e) => {
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    camYaw = mouse.x * 0.4;
-    camPitch = mouse.y * 0.25;
-  });
 
   window.addEventListener('wheel', (e) => {
     zoom += e.deltaY * 0.025;
-    zoom = Math.max(12, Math.min(70, zoom));
+    zoom = Math.max(15, Math.min(55, zoom));
   });
 
   window.addEventListener('dblclick', () => {
-    camYaw = 0;
-    camPitch = 0;
     zoom = 32;
   });
 
@@ -369,17 +363,13 @@ async function init() {
 
     rains.forEach(rain => rain.update(time));
 
-    const targetX = Math.sin(camYaw) * zoom;
-    const targetZ = Math.cos(camYaw) * zoom;
-    const targetCam = new THREE.Vector3(targetX, 6 + camPitch * 10, targetZ);
-
-    camera.position.lerp(targetCam, 0.04);
-    camera.lookAt(0, -12 + camPitch * 6, -25);
+    // Camera: fixed position, only zoom changes. No yaw/pitch.
+    camera.position.set(0, 6, zoom);
+    camera.lookAt(0, -12, -25);
 
     pointLight.position.copy(camera.position);
 
-    gridHelper.rotation.y = time * 0.015;
-    gridTop.rotation.y = -time * 0.015;
+    // Grids: completely static
 
     frameCount++;
     fpsTime += dt;
