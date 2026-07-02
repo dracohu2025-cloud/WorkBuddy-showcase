@@ -20,8 +20,8 @@ const CONFIG = {
   trailMax: 48,
   atlasChars: 256,
   atlasSize: 16,
-  bloomStrength: 1.6,
-  bloomRadius: 0.7,
+  bloomStrength: 1.25,
+  bloomRadius: 0.55,
   bloomThreshold: 0.04,
   fogColor: 0x000300,
   baseColor: new THREE.Color('#00aa2a'),
@@ -170,7 +170,7 @@ const rainVertexShader = /* glsl */`
     float z = aLayerZ;
 
     vTrailPos = row / max(aTrailLen, 1.0);
-    vCharIndex = mod(uTime * 18.0 + float(gl_InstanceID) * 97.0, 256.0);
+    vCharIndex = mod(uTime * 8.0 + float(gl_InstanceID) * 97.0, 256.0);
 
     vec3 pos = position * uCharSize;
     pos.x += x;
@@ -236,7 +236,8 @@ class MatrixRain {
       const speed = CONFIG.fallSpeedMin + Math.random() * (CONFIG.fallSpeedMax - CONFIG.fallSpeedMin);
       const trailLen = CONFIG.trailMin + Math.floor(Math.random() * (CONFIG.trailMax - CONFIG.trailMin));
       const offset = Math.random() * CONFIG.depth;
-      const columnX = c + Math.random() * 0.4;
+      const columnX = c + 0.25;
+      const columnZ = layerZ + (Math.random() - 0.5) * 4.0;
 
       for (let r = 0; r < this.maxRows; r++) {
         const i = c * this.maxRows + r;
@@ -244,7 +245,7 @@ class MatrixRain {
         aSpeed[i] = speed;
         aTrailLen[i] = trailLen;
         aOffset[i] = offset;
-        aLayerZ[i] = layerZ + (Math.random() - 0.5) * 5.0;
+        aLayerZ[i] = columnZ;
         aBrightness[i] = brightness;
       }
     }
